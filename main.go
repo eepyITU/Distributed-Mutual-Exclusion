@@ -27,6 +27,14 @@ func main() {
 		ctx:           ctx,
 	}
 
+	//NOW: A token ring
+	//1: Create a critical section that nodes want to access
+	//2: The token ring in question is already here? (With dialing), specifically for 3 nodes (HARDCODED)
+	//3: Make sure that the first node (1) starts the ring
+	//4: 0 sends data to 1
+	//5: 1 sends data to 2
+	//6: 2 sends data to 0
+
 	// Create listener tcp on port ownPort
 	list, err := net.Listen("tcp", fmt.Sprintf(":%v", ownPort))
 	if err != nil {
@@ -36,6 +44,7 @@ func main() {
 	ping.RegisterPingServer(grpcServer, p)
 
 	go func() {
+		//In here is where we need to have the critical section token.
 		if err := grpcServer.Serve(list); err != nil {
 			log.Fatalf("failed to server %v", err)
 		}
@@ -81,7 +90,10 @@ func (p *peer) Ping(ctx context.Context, req *ping.Request) (*ping.Reply, error)
 	return rep, nil
 }
 
-func (p *peer) sendPingToAll() {
+//This func goes from 'SendPingToAll' to 'SendPingToNeighbor' instead.
+//Since it needs only ping to the next port in the sequence.
+
+func (p *peer) sendPingToNeighbor() {
 	request := &ping.Request{Id: p.id}
 	for id, client := range p.clients {
 		reply, err := client.Ping(p.ctx, request)
