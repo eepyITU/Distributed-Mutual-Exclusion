@@ -1,14 +1,14 @@
 package main
 
 import (
-	"bufio"
 	"context"
 	"fmt"
 	"log"
+	"math/rand"
 	"net"
 	"os"
 	"strconv"
-	"sync"
+	"time"
 
 	ping "github.com/eepyITU/Distributed-Mutual-Exclusion/grpc"
 	"google.golang.org/grpc"
@@ -59,8 +59,6 @@ func main() {
 			continue
 		}
 
-		p.enterCriticalSection()
-
 		var conn *grpc.ClientConn
 		fmt.Printf("Trying to dial: %v\n", port)
 		conn, err := grpc.Dial(fmt.Sprintf(":%v", port), grpc.WithInsecure(), grpc.WithBlock())
@@ -73,10 +71,21 @@ func main() {
 
 	}
 
-	scanner := bufio.NewScanner(os.Stdin)
-	for scanner.Scan() {
-		p.sendPingToNeighbor()
+	//scanner := bufio.NewScanner(os.Stdin)
+	//for scanner.Scan() {
+	//p.sendPingToNeighbor()
+	//}
+	for {
+		rand := rand.Intn(100)
+		if rand > 90 {
+			p.sendPingToNeighbor()
+		} else {
+			p.ImportantWork()
+		}
 	}
+	//istedet for at bede om request og sender dét rundt
+	//istedet tjek om p har token, og om den skal sendes videre
+
 }
 
 type Peer struct {
@@ -85,23 +94,57 @@ type Peer struct {
 	amountOfPings map[int32]int32
 	clients       map[int32]ping.PingClient
 	ctx           context.Context
-	lock          sync.Mutex
+	state         bool
 }
 
 func (p *Peer) Ping(ctx context.Context, req *ping.Request) (*ping.Reply, error) {
 	id := req.Id
 	p.amountOfPings[id] += 1
 
-	rep := &ping.Reply{Amount: p.amountOfPings[id]}
-	return rep, nil
+	//er den selv i critical section
+	requestToken := req.RequestToken
+	if req.RequestId == p.id {
+		//hvem har sendt requesten originalt (propagerer id'et videre)
+		if requestToken == 1 {
+			p.enterCriticalSection()
+			return &ping.Reply{
+				Id:    p.id,
+				Reply: 1,
+			}, nil
+		} else {
+			log.Printf("Peer %d was denied access to the critical section.", p.id)
+			return &ping.Reply{
+				Id:    p.id,
+				Reply: 1,
+			}, nil
+		}
+	} else {
+		if p.state {
+			requestToken = 0
+		}
+
+		//sende videre hvis det ikke er den selv
+		p.propagatePingToNeighbor(req.RequestId, requestToken)
+		return &ping.Reply{
+			Id:    p.id,
+			Reply: 1,
+		}, nil
+
+	}
+
 }
 
 //This func goes from 'SendPingToAll' to 'SendPingToNeighbor' instead.
 //Since it needs only ping to the next port in the sequence.
+//sendTokenToNeighbor (--p.id)
+//hvis nuværende peer har token, state true
+//ellers false (tjekker om den har token når den enter critical section.)
+//efter critical section, skal den sendes videre
+//at enter critical section skal du have token,
+//kan ikke enter uden token
 
 func (p *Peer) sendPingToNeighbor() {
-	fmt.Printf("sendPingToNeighbor() is starting.")
-	request := &ping.Request{Id: p.id}
+	request := &ping.Request{Id: p.id, RequestToken: 1, RequestId: p.id}
 
 	nextPort := (p.id + 1) % int32(len(p.clients))
 
@@ -111,7 +154,24 @@ func (p *Peer) sendPingToNeighbor() {
 	if err != nil {
 		fmt.Println("something went wrong")
 	}
-	fmt.Printf("Got reply from id %v: %v\n", nextPort, reply.Amount)
+	fmt.Printf("Got reply from id %v: %v\n", reply.Id, reply.Reply)
+
+	//p.enterCriticalSection()
+
+}
+
+func (p *Peer) propagatePingToNeighbor(requestId int32, requestToken int32) {
+	request := &ping.Request{Id: p.id, RequestToken: requestToken, RequestId: int32(requestId)}
+
+	nextPort := (p.id + 1) % int32(len(p.clients))
+
+	client := p.clients[nextPort]
+
+	reply, err := client.Ping(p.ctx, request)
+	if err != nil {
+		fmt.Println("something went wrong")
+	}
+	fmt.Printf("Got reply from id %v: %v\n", nextPort, reply.Reply)
 
 	//p.enterCriticalSection()
 
@@ -119,10 +179,18 @@ func (p *Peer) sendPingToNeighbor() {
 
 // trying to make a function that makes the peer access the critical section.
 func (p *Peer) enterCriticalSection() {
-	p.lock.Lock()
-	defer p.lock.Unlock()
-	//defer func
 	log.Printf("Peer %d is now in the critical section.\n", p.id)
 
+	time.Sleep(10)
+
 	log.Printf("Peer %d is now done with the critical section.\n", p.id)
+}
+
+func (p *Peer) ImportantWork() {
+	log.Printf("Starting some very important work.")
+
+	time.Sleep(10)
+
+	log.Printf("Finishing some very important work.")
+
 }
