@@ -113,7 +113,7 @@ func (p *Peer) sendPingToNeighbor() {
 	}
 	fmt.Printf("Got reply from id %v: %v\n", nextPort, reply.Amount)
 
-	p.enterCriticalSection()
+	//p.enterCriticalSection()
 
 }
 
@@ -121,7 +121,7 @@ func (p *Peer) sendPingToNeighbor() {
 func (p *Peer) enterCriticalSection() {
 	p.lock.Lock()
 	defer p.lock.Unlock()
-
+	//defer func
 	log.Printf("Peer %d is now in the critical section.\n", p.id)
 
 	log.Printf("Peer %d is now done with the critical section.\n", p.id)
