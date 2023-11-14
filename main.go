@@ -8,6 +8,7 @@ import (
 	"net"
 	"os"
 	"strconv"
+	"sync"
 
 	ping "github.com/eepyITU/Distributed-Mutual-Exclusion/grpc"
 	"google.golang.org/grpc"
@@ -20,7 +21,7 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	p := &peer{
+	p := &Peer{
 		id:            ownPort,
 		amountOfPings: make(map[int32]int32),
 		clients:       make(map[int32]ping.PingClient),
@@ -48,6 +49,7 @@ func main() {
 		if err := grpcServer.Serve(list); err != nil {
 			log.Fatalf("failed to server %v", err)
 		}
+		log.Println("This is a critical section token.")
 	}()
 
 	for i := 0; i < 3; i++ {
@@ -56,6 +58,8 @@ func main() {
 		if port == ownPort {
 			continue
 		}
+
+		p.enterCriticalSection()
 
 		var conn *grpc.ClientConn
 		fmt.Printf("Trying to dial: %v\n", port)
@@ -66,23 +70,25 @@ func main() {
 		defer conn.Close()
 		c := ping.NewPingClient(conn)
 		p.clients[port] = c
+
 	}
 
 	scanner := bufio.NewScanner(os.Stdin)
 	for scanner.Scan() {
-		p.sendPingToAll()
+		p.sendPingToNeighbor()
 	}
 }
 
-type peer struct {
+type Peer struct {
 	ping.UnimplementedPingServer
 	id            int32
 	amountOfPings map[int32]int32
 	clients       map[int32]ping.PingClient
 	ctx           context.Context
+	lock          sync.Mutex
 }
 
-func (p *peer) Ping(ctx context.Context, req *ping.Request) (*ping.Reply, error) {
+func (p *Peer) Ping(ctx context.Context, req *ping.Request) (*ping.Reply, error) {
 	id := req.Id
 	p.amountOfPings[id] += 1
 
@@ -93,13 +99,30 @@ func (p *peer) Ping(ctx context.Context, req *ping.Request) (*ping.Reply, error)
 //This func goes from 'SendPingToAll' to 'SendPingToNeighbor' instead.
 //Since it needs only ping to the next port in the sequence.
 
-func (p *peer) sendPingToNeighbor() {
+func (p *Peer) sendPingToNeighbor() {
+	fmt.Printf("sendPingToNeighbor() is starting.")
 	request := &ping.Request{Id: p.id}
-	for id, client := range p.clients {
-		reply, err := client.Ping(p.ctx, request)
-		if err != nil {
-			fmt.Println("something went wrong")
-		}
-		fmt.Printf("Got reply from id %v: %v\n", id, reply.Amount)
+
+	nextPort := (p.id + 1) % int32(len(p.clients))
+
+	client := p.clients[nextPort]
+
+	reply, err := client.Ping(p.ctx, request)
+	if err != nil {
+		fmt.Println("something went wrong")
 	}
+	fmt.Printf("Got reply from id %v: %v\n", nextPort, reply.Amount)
+
+	p.enterCriticalSection()
+
+}
+
+// trying to make a function that makes the peer access the critical section.
+func (p *Peer) enterCriticalSection() {
+	p.lock.Lock()
+	defer p.lock.Unlock()
+
+	log.Printf("Peer %d is now in the critical section.\n", p.id)
+
+	log.Printf("Peer %d is now done with the critical section.\n", p.id)
 }
