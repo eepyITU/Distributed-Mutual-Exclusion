@@ -15,6 +15,17 @@ import (
 )
 
 func main() {
+	f, err := os.OpenFile("log", os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	//defer to close when you're done with it, not because you think it's idiomatic!
+	defer f.Close()
+
+	//set output of logs to f
+	log.SetOutput(f)
+
 	arg1, _ := strconv.ParseInt(os.Args[1], 10, 32)
 	ownPort := int32(arg1) + 5000
 
@@ -49,7 +60,6 @@ func main() {
 		if err := grpcServer.Serve(list); err != nil {
 			log.Fatalf("failed to server %v", err)
 		}
-		log.Println("This is a critical section token.")
 	}()
 
 	for i := 0; i < 3; i++ {
@@ -181,16 +191,16 @@ func (p *Peer) propagatePingToNeighbor(requestId int32, requestToken int32) {
 func (p *Peer) enterCriticalSection() {
 	log.Printf("Peer %d is now in the critical section.\n", p.id)
 
-	time.Sleep(10)
+	time.Sleep(3)
 
 	log.Printf("Peer %d is now done with the critical section.\n", p.id)
 }
 
 func (p *Peer) ImportantWork() {
-	log.Printf("Starting some very important work.")
+	log.Printf("Peer %d is starting some very important work.\n", p.id)
 
-	time.Sleep(10)
+	time.Sleep(3)
 
-	log.Printf("Finishing some very important work.")
+	log.Printf("Peer %d is finishing some very important work.\n", p.id)
 
 }
